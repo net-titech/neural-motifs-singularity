@@ -1,0 +1,49 @@
+Bootstrap: docker
+From: nvidia/cuda:9.0-devel-ubuntu16.04
+
+%environment
+    export CMAKE_PREFIX_PATH=/opt/conda/
+    export PATH=/usr/local/bin:$PATH
+    export LD_LIBRARY_PATH=/usr/local/lib/:$LD_LIBRARY_PATH
+    export PYTHONPATH=/data/crest/neural-motifs
+
+%files
+    /data/crest/singularity/environment_mpi.yml /data/crest/environment.yml
+    /data/crest/singularity/neural-motifs2 /data/crest/neural-motifs
+
+%post
+    sed --in-place --regexp-extended \
+        "s/(archive\.ubuntu\.com)/jp.archive.ubuntu.com/" /etc/apt/sources.list && \
+    sed --in-place --regexp-extended \
+        "s/(security\.ubuntu\.com)/jp.archive.ubuntu.com/" /etc/apt/sources.list
+
+    mkdir -p /code
+
+    apt-get -y update && apt-get install -y git wget build-essential vim
+    wget -O ~/miniconda.sh https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh  && \
+        chmod +x ~/miniconda.sh && \
+        ~/miniconda.sh -b -p /opt/conda && \
+        rm ~/miniconda.sh
+    . /opt/conda/bin/activate
+    conda env create --name motif --file /data/crest/environment.yml
+    conda activate motif
+
+    wget -O /code/openmpi.tar.gz https://download.open-mpi.org/release/open-mpi/v2.1/openmpi-2.1.2.tar.gz
+    cd /code && tar xvzf openmpi.tar.gz && rm /code/openmpi.tar.gz
+    cd /code/openmpi-2.1.2 && ./configure --with-cuda --enable-mpi-thread-multiple && make all install
+    export PATH=/usr/local/bin:$PATH
+    export LD_LIBRARY_PATH=/usr/local/lib/:$LD_LIBRARY_PATH
+
+    conda install pyyaml mkl-include cmake typing
+    conda install -c pytorch magma-cuda90
+
+    cd /code && git clone --recursive -b v0.3.1 https://github.com/pytorch/pytorch
+    cd /code/pytorch && python setup.py install
+
+    git clone https://github.com/cocodataset/cocoapi.git /opt/cocoapi && cd /opt/cocoapi/PythonAPI
+    python /opt/cocoapi/PythonAPI/setup.py install
+
+    HOROVOD_WITHOUT_MXNET=1 HOROVOD_WITHOUT_TENSORFLOW=1 pip install horovod==0.14.1
+
+    echo ". /opt/conda/etc/profile.d/conda.sh" >> $SINGULARITY_ENVIRONMENT
+    echo "conda activate motif" >> $SINGULARITY_ENVIRONMENT
